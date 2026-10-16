@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Renkle Görsel Aktarımı</title>
+<meta name="color-scheme" content="dark">
+<title>Renk Kanalı</title>
 <style>
   :root{--bg:#111;--card:#1c1c1e;--fg:#f2f2f2;--mut:#9a9a9f;--acc:#4f8cff}
   *{box-sizing:border-box}
@@ -17,21 +18,25 @@
   button:disabled{opacity:.4}
   .card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px}
   label{display:block;margin:10px 0 4px;color:var(--mut);font-size:13px}
-  input[type=number],select{width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#111;color:var(--fg)}
+  select{width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#111;color:var(--fg)}
   input[type=range]{width:100%}
-  canvas.px{width:100%;image-rendering:pixelated;background:#000;border-radius:8px;display:block}
-  video{width:100%;max-height:160px;background:#000;border-radius:8px;object-fit:cover}
+  canvas.px{width:100%;background:#000;border-radius:8px;display:block}
+  video{width:100%;max-height:150px;background:#000;border-radius:8px;object-fit:cover}
   .row{display:flex;gap:8px;align-items:center}
   .row>*{flex:1}
   .small{font-size:13px;color:var(--mut);line-height:1.45}
   #swatch{width:44px;height:44px;flex:none;border-radius:8px;border:1px solid #444}
+  #sym{font-size:22px;font-weight:700;min-width:60px;flex:none;text-align:center}
   progress{width:100%}
   #overlay{position:fixed;inset:0;background:#000;display:none;z-index:99}
   .hidden{display:none}
+  .pal{display:flex;gap:3px;flex-wrap:wrap;margin-top:8px}
+  .pal i{width:22px;height:22px;border-radius:5px;display:block;position:relative}
+  .pal b{position:absolute;inset:0;font-size:11px;font-style:normal;text-align:center;line-height:22px;color:#000;font-weight:700}
 </style>
 </head>
 <body>
-<h1>Renkle Görsel Aktarımı</h1>
+<h1>Renk Kanalı</h1>
 <div class="tabs">
   <button id="tabS" class="on">Gönder</button>
   <button id="tabR">Al</button>
@@ -41,19 +46,31 @@
 <section id="send">
   <div class="card">
     <input type="file" id="file" accept="image/*">
-    <label>Genişlik (piksel)</label>
-    <input type="number" id="w" value="32" min="2" max="200">
-    <label>Sembol süresi: <b id="Tv">150</b> ms (düşük = hızlı ama hatalı)</label>
-    <input type="range" id="T" min="80" max="400" step="10" value="150">
-    <label>Başlamadan önce bekleme</label>
-    <select id="delay"><option value="3">3 sn</option><option value="5" selected>5 sn</option><option value="10">10 sn</option></select>
-    <label><input type="checkbox" id="dither" checked> Dithering (daha iyi görüntü kalitesi)</label>
+    <label>Çözünürlük (genişlik)</label>
+    <select id="w">
+      <option>160</option><option>240</option><option selected>320</option><option>480</option>
+      <option>640</option><option>960</option><option>1280</option><option>1920</option>
+    </select>
+    <label>Renk sayısı: <b id="kv">6</b> (görsel bu kadar renge indirgenir)</label>
+    <input type="range" id="k" min="2" max="9" value="6">
+    <label>Tolerans: <b id="tolv">3</b>% (yüksek = daha az blok, daha hızlı)</label>
+    <input type="range" id="tol" min="0" max="15" value="3">
+    <label>En küçük blok: <b id="minbv">2</b> px</label>
+    <input type="range" id="minb" min="1" max="16" value="2">
+    <label>Sembol süresi: <b id="Tv">200</b> ms</label>
+    <input type="range" id="T" min="100" max="500" step="10" value="200">
+    <div class="row">
+      <div><label>Tekrar (tur)</label><select id="loops"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="0">Sonsuz</option></select></div>
+      <div><label>Başlamadan önce</label><select id="delay"><option value="3">3 sn</option><option value="5" selected>5 sn</option><option value="10">10 sn</option></select></div>
+    </div>
   </div>
   <div class="card">
     <canvas id="prev" class="px" width="1" height="1"></canvas>
     <p class="small" id="info">Bir görsel seç.</p>
+    <div class="pal" id="palview"></div>
+    <p></p>
     <button class="primary" id="go" disabled style="width:100%">Göndermeyi başlat</button>
-    <p class="small">İpucu: Parlaklığı en üste al, otomatik parlaklık / True Tone / gece modu / karanlık mod filtrelerini kapat. Başlat'a bastıktan sonra telefonu alıcının kamerasına yapıştır. Durdurmak için ekrana dokun.</p>
+    <p class="small">Önce alıcıda "Dinlemeyi başlat"a bas, sonra buradan başlat ve ekranı alıcının kamerasına yapıştır. Parlaklığı yüksek tut; otomatik parlaklık, True Tone, gece modu ve karanlık modu kapat. Durdurmak için ekrana dokun.</p>
   </div>
 </section>
 
@@ -62,7 +79,7 @@
   <div class="card">
     <div class="row">
       <div><label>Kamera</label><select id="cam"><option value="environment">Arka</option><option value="user">Ön</option></select></div>
-      <div><label>Doğrulama (kare)</label><select id="conf"><option>2</option><option>3</option></select></div>
+      <div><label>Doğrulama (kare)</label><select id="conf"><option>2</option><option selected>3</option><option>4</option></select></div>
     </div>
     <p></p>
     <video id="video" playsinline muted autoplay></video>
@@ -73,11 +90,11 @@
     </div>
   </div>
   <div class="card">
-    <div class="row"><div id="swatch"></div><div class="small" id="status">Hazır.</div></div>
+    <div class="row"><div id="swatch"></div><div id="sym">–</div><div class="small" id="status">Hazır.</div></div>
     <p></p>
     <progress id="prog" value="0" max="1"></progress>
-    <p></p>
-    <canvas id="out" class="px" width="1" height="1"></canvas>
+    <p class="small" id="stats"></p>
+    <canvas id="out" class="px" width="16" height="9"></canvas>
     <p></p>
     <button id="dl" disabled style="width:100%">PNG olarak indir</button>
   </div>
@@ -87,108 +104,320 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const PAL = i => [(i & 1) * 255, ((i >> 1) & 1) * 255, ((i >> 2) & 1) * 255];
 
-/* ---------- Sekmeler ---------- */
+/*CORE-START*/
+/* =====================================================================
+   PROTOKOL
+   Fiziksel katman: 12 renk. Hepsi AYNI parlaklıkta (kamera pozlaması
+   sabit kalsın diye), sadece TON (hue) farklı. Alıcı renkleri parlaklığa
+   değil tona göre ayırır.
+     0..9  : rakamlar
+     10    : R = "bir önceki rakamı tekrarla" (art arda aynı renk olmasın)
+     11    : S = paket başı
+     gri   : boşta / tur arası
+   Mantıksal katman: sadece 0-9 rakamları.
+   Paket  : S + idx(4 rakam) + yük(P rakam) + 2 sağlama rakamı
+   Tur    : gri + kalibrasyon (12 renk sırayla) + tüm paketler
+   Paketler numaralı olduğu için tur tekrarlanınca eksik/bozuk paketler
+   tamamlanır.
+   Görsel: K renge indirgenir, quadtree ile kodlanır (BFS):
+     jeton 0..K-1 = bu bloğu tek renkle boya, 9 = böl.
+     Böylece büyük düz alanlar tek rakamla gider ve görsel kabadan
+     inceye doğru canlı belirir.
+   ===================================================================== */
+const P = 24, PKT_N = 4 + P + 2, HOLD = 3, SYM_R = 10, SYM_S = 11, GRAY = [120, 120, 120];
+
+const hexHue = (r, g, b) => { const h = Math.atan2(Math.sqrt(3) * (g - b), 2 * r - g - b) * 180 / Math.PI; return (h + 360) % 360; };
+const hueDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+const hueSigned = (a, b) => ((b - a + 540) % 360) - 180;
+const satOf = (r, g, b) => { const s = r + g + b; return s > 0 ? (Math.max(r, g, b) - Math.min(r, g, b)) / s : 0; };
+
+function palColor(deg) {            // sabit parlaklıkta, verilen tonda renk
+  const t = deg * Math.PI / 180, a = Math.cos(t), b = Math.sin(t);
+  const dr = a / 3, dg = (-dr + b / Math.sqrt(3)) / 2, db = (-dr - b / Math.sqrt(3)) / 2;
+  const L = 0.299 * dr + 0.587 * dg + 0.114 * db;
+  const d = [dr - L, dg - L, db - L];
+  const span = Math.max(...d) - Math.min(...d);
+  return d.map(v => Math.max(0, Math.min(255, Math.round(255 * (0.47 + 0.42 * v / span)))));
+}
+const SYMCOL = Array.from({ length: 12 }, (_, k) => palColor(15 + 30 * k));
+const symRGB = s => s < 0 ? GRAY : SYMCOL[s];
+
+/* ---- görsel -> palet -> quadtree ---- */
+function buildPalette(data, N, K) {
+  const step = Math.max(1, Math.floor(N / 6000)), S = [];
+  for (let i = 0; i < N; i += step) S.push([data[4 * i], data[4 * i + 1], data[4 * i + 2]]);
+  const d2 = (p, c) => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
+  let C = [S[0].slice()];
+  while (C.length < K) {
+    let best = S[0], bd = -1;
+    for (const p of S) { let m = 1e18; for (const c of C) { const d = d2(p, c); if (d < m) m = d; } if (m > bd) { bd = m; best = p; } }
+    C.push(best.slice());
+  }
+  for (let it = 0; it < 10; it++) {
+    const sum = C.map(() => [0, 0, 0, 0]);
+    for (const p of S) {
+      let bi = 0, bd = 1e18;
+      for (let i = 0; i < C.length; i++) { const d = d2(p, C[i]); if (d < bd) { bd = d; bi = i; } }
+      const s = sum[bi]; s[0] += p[0]; s[1] += p[1]; s[2] += p[2]; s[3]++;
+    }
+    C = C.map((c, i) => sum[i][3] ? [sum[i][0] / sum[i][3], sum[i][1] / sum[i][3], sum[i][2] / sum[i][3]] : c);
+  }
+  return C.map(c => c.map(v => Math.max(0, Math.min(255, Math.round(v)))));
+}
+
+function labelImage(data, N, pal) {
+  const L = new Uint8Array(N), K = pal.length;
+  for (let i = 0; i < N; i++) {
+    const r = data[4 * i], g = data[4 * i + 1], b = data[4 * i + 2];
+    let bi = 0, bd = 1e9;
+    for (let k = 0; k < K; k++) {
+      const p = pal[k], d = (r - p[0]) * (r - p[0]) + (g - p[1]) * (g - p[1]) + (b - p[2]) * (b - p[2]);
+      if (d < bd) { bd = d; bi = k; }
+    }
+    L[i] = bi;
+  }
+  return L;
+}
+
+function kids(x, y, w, h) {
+  const wl = Math.ceil(w / 2), hl = Math.ceil(h / 2), o = [[x, y, wl, hl]];
+  if (w - wl > 0) o.push([x + wl, y, w - wl, hl]);
+  if (h - hl > 0) o.push([x, y + hl, wl, h - hl]);
+  if (w - wl > 0 && h - hl > 0) o.push([x + wl, y + hl, w - wl, h - hl]);
+  return o;
+}
+
+function quadEncode(L, W, H, K, tol, minB) {
+  const tokens = [], leaves = [], q = [[0, 0, W, H]], cnt = new Int32Array(K);
+  let qi = 0;
+  while (qi < q.length) {
+    const [x, y, w, h] = q[qi++];
+    cnt.fill(0);
+    for (let yy = y; yy < y + h; yy++) { const o = yy * W; for (let xx = x; xx < x + w; xx++) cnt[L[o + xx]]++; }
+    let bi = 0; for (let i = 1; i < K; i++) if (cnt[i] > cnt[bi]) bi = i;
+    const area = w * h;
+    if (area === 1 || cnt[bi] >= area * (1 - tol) || (w <= minB && h <= minB)) {
+      tokens.push(bi); leaves.push([x, y, w, h, bi]);
+    } else {
+      tokens.push(9);
+      for (const c of kids(x, y, w, h)) q.push(c);
+    }
+  }
+  return { tokens, leaves };
+}
+
+const digitsOf = (n, len) => { const a = []; for (let i = len - 1; i >= 0; i--) a.push(Math.floor(n / Math.pow(10, i)) % 10); return a; };
+
+function buildLogical(W, H, pal, tokens) {
+  const K = pal.length, L = 13 + 9 * K + tokens.length, total = Math.ceil(L / P);
+  const d = [...digitsOf(total, 4), ...digitsOf(W, 4), ...digitsOf(H, 4), K];
+  for (const c of pal) for (const v of c) d.push(...digitsOf(v, 3));
+  for (const t of tokens) d.push(t);
+  while (d.length % P) d.push(0);
+  return { digits: d, total };
+}
+
+function checks(a) {
+  let s1 = 0, s2 = 0;
+  for (let i = 0; i < a.length; i++) { s1 += a[i]; s2 += (i + 1) * a[i]; }
+  return [s1 % 10, s2 % 10];
+}
+
+function buildFrames(digits, total) {      // tek tur
+  const fr = []; let last = null;
+  const raw = s => { fr.push(s); last = s; };
+  for (let i = 0; i < 5; i++) raw(-1);
+  for (let k = 0; k < 12; k++) for (let j = 0; j < HOLD; j++) raw(k);   // son renk S
+  for (let p = 0; p < total; p++) {
+    const pk = [...digitsOf(p, 4), ...digits.slice(p * P, p * P + P)];
+    pk.push(...checks(pk));
+    if (last !== SYM_S) raw(SYM_S);
+    for (const d of pk) raw(last === d ? SYM_R : d);
+  }
+  return fr;
+}
+
+/* ---- alıcı ---- */
+function patternOk(win) {                    // 12 ardışık renk, her adımda ~+30° ton
+  if (win.length < 12) return false;
+  for (const r of win) if (r.neutral) return false;
+  let sum = 0;
+  for (let k = 1; k < 12; k++) {
+    const d = (win[k].hue - win[k - 1].hue + 360) % 360;
+    if (d < 4 || d > 100) return false;       // beyaz dengesi tonları kaydırabilir, o yüzden geniş tolerans
+    sum += d;
+  }
+  return sum > 270 && sum < 368;               // 11 adım ≈ 330°
+}
+
+class Rx {
+  constructor(cb, conf = 3) { this.cb = cb; this.conf = conf; this.reset(); }
+  reset() {
+    this.satThr = 0.10; this.cur = null; this.alt = null; this.win = []; this.refs = null; this.mode = 'wait';
+    this.lastSym = -2; this.pkt = null; this.pk = {};
+    this.ok = 0; this.bad = 0; this.dup = 0; this.total = 0; this.next = 0;
+    this.dec = { buf: [], pos: 0, stage: 0, total: 0, W: 0, H: 0, K: 0, pal: [], q: [], qi: 0 };
+    this.done = false; this.cal = 0; this.live = null;
+  }
+  nearest(hue) {
+    let best = 0, bd = 999;
+    for (let k = 0; k < 12; k++) { const d = hueDiff(hue, this.refs[k]); if (d < bd) { bd = d; best = k; } }
+    return { sym: best, diff: bd };
+  }
+  feed(rgb) {
+    if (this.done) return;
+    const [r, g, b] = rgb;
+    const neutral = (r + g + b) < 45 || satOf(r, g, b) < this.satThr;
+    const hue = hexHue(r, g, b);
+    this.live = { hue, neutral, sym: (!neutral && this.refs) ? this.nearest(hue).sym : null };
+    const near = x => x && x.neutral === neutral && (neutral || hueDiff(x.hue, hue) < 13);
+    const add = x => { x.n++; x.sum[0] += r; x.sum[1] += g; x.sum[2] += b; x.hue = hexHue(x.sum[0], x.sum[1], x.sum[2]); };
+    let c = this.cur;
+    if (near(c)) { add(c); this.alt = null; }                       // tek tük sapan örnek (gürültü) yok sayılır
+    else if (near(this.alt)) {
+      add(this.alt);
+      if (this.alt.n >= 2) { c = this.cur = this.alt; this.alt = null; }   // ard arda 2 örnek -> yeni renk
+    } else this.alt = { sum: [r, g, b], n: 1, ok: false, neutral, hue };
+    if (!c) { c = this.cur = this.alt; this.alt = null; }
+    if (c && !c.ok && c.n >= this.conf) { c.ok = true; this.onRun(c); }
+  }
+  onRun(run) {
+    const w = { hue: run.hue, neutral: run.neutral, sat: satOf(run.sum[0], run.sum[1], run.sum[2]) };
+    const lw = this.win[this.win.length - 1];
+    if (lw && !lw.neutral && !w.neutral && hueDiff(lw.hue, w.hue) < 10) { lw.hue = w.hue; lw.sat = w.sat; }   // gürültüyle bölünmüş aynı renk
+    else { this.win.push(w); if (this.win.length > 12) this.win.shift(); }
+    if (patternOk(this.win)) {
+      this.refs = this.win.map(r => r.hue);
+      this.satThr = Math.max(0.05, 0.5 * Math.min(...this.win.map(r => r.sat)));   // gri ile renkli arasındaki eşik kameraya göre ayarlanır
+      this.win = [];                          // kayan pencere aynı diziyi tekrar "kalibrasyon" sanmasın
+      this.mode = 'data'; this.lastSym = SYM_S; this.pkt = { d: [], last: null };
+      this.cal++; this.cb.onCal && this.cb.onCal(this.cal);
+      return;
+    }
+    if (this.mode !== 'data') return;
+    if (run.neutral) { this.pkt = null; this.lastSym = -1; return; }
+    const n = this.nearest(run.hue);
+    if (n.sym === this.lastSym) return;
+    this.lastSym = n.sym;
+    if (n.diff < 10) this.refs[n.sym] = (this.refs[n.sym] + 0.15 * hueSigned(this.refs[n.sym], run.hue) + 360) % 360;
+    this.sym(n.sym);
+  }
+  sym(s) {
+    if (s === SYM_S) { this.pkt = { d: [], last: null }; return; }
+    const p = this.pkt; if (!p) return;
+    let d;
+    if (s === SYM_R) { if (p.last === null) { this.pkt = null; return; } d = p.last; } else d = s;
+    p.last = d; p.d.push(d);
+    if (p.d.length === PKT_N) this.endPkt();
+  }
+  endPkt() {
+    const a = this.pkt.d; this.pkt = null;
+    const body = a.slice(0, 4 + P), c = checks(body);
+    if (c[0] !== a[4 + P] || c[1] !== a[5 + P]) { this.bad++; this.cb.onPacket && this.cb.onPacket(); return; }
+    const idx = a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3];
+    if (this.total && idx >= this.total) { this.bad++; }
+    else if (this.pk[idx]) this.dup++;
+    else { this.pk[idx] = a.slice(4, 4 + P); this.ok++; this.absorb(); }
+    this.cb.onPacket && this.cb.onPacket();
+  }
+  absorb() {
+    let moved = false;
+    while (this.pk[this.next]) { for (const v of this.pk[this.next]) this.dec.buf.push(v); this.next++; moved = true; }
+    if (moved) this.decode();
+  }
+  decode() {
+    const d = this.dec, cb = this.cb;
+    const num = len => { let v = 0; for (let i = 0; i < len; i++) v = v * 10 + d.buf[d.pos++]; return v; };
+    for (;;) {
+      if (d.stage === 0) {
+        if (d.buf.length - d.pos < 13) return;
+        d.total = num(4); d.W = num(4); d.H = num(4); d.K = num(1);
+        if (d.W < 1 || d.H < 1 || d.K < 1) { d.stage = -1; return; }
+        this.total = d.total; d.stage = 1;
+      } else if (d.stage === 1) {
+        if (d.buf.length - d.pos < 9 * d.K) return;
+        for (let k = 0; k < d.K; k++) d.pal.push([Math.min(255, num(3)), Math.min(255, num(3)), Math.min(255, num(3))]);
+        d.q = [[0, 0, d.W, d.H]]; d.qi = 0; d.stage = 2;
+        cb.onInit && cb.onInit(d.W, d.H, d.pal);
+      } else if (d.stage === 2) {
+        while (d.pos < d.buf.length && d.qi < d.q.length) {
+          const t = d.buf[d.pos++], [x, y, w, h] = d.q[d.qi++];
+          if (t === 9 && w * h > 1) { for (const c of kids(x, y, w, h)) d.q.push(c); }
+          else if (t < d.K) cb.onPaint && cb.onPaint(x, y, w, h, d.pal[t]);
+        }
+        if (d.qi >= d.q.length) { d.stage = 3; this.done = true; cb.onDone && cb.onDone(); }
+        return;
+      } else return;
+    }
+  }
+}
+/*CORE-END*/
+
+/* =====================  ARAYÜZ  ===================== */
 $('tabS').onclick = () => { $('send').classList.remove('hidden'); $('recv').classList.add('hidden'); $('tabS').classList.add('on'); $('tabR').classList.remove('on'); };
 $('tabR').onclick = () => { $('recv').classList.remove('hidden'); $('send').classList.add('hidden'); $('tabR').classList.add('on'); $('tabS').classList.remove('on'); };
 
-/* =====================================================
-   PROTOKOL
-   - 8 renk (RGB köşeleri). Siyah=0 ... Beyaz=7
-   - Kalibrasyon: siyah, kırmızı, yeşil, sarı, mavi, mor, camgöbeği, beyaz
-   - Veri: her kare bir öncekinden FARKLI renk (diferansiyel kodlama),
-     7'li tabanda rakam: renk = (önceki + 1 + rakam) % 8
-     => ortak saat gerekmez, ardışık aynı renk sorunu olmaz
-   - Başlık: genişlik (3 rakam), yükseklik (3 rakam)
-   - Piksel: 3 bit/kanal = 9 bit (0..511) -> 4 rakam (7^4=2401)
-   ===================================================== */
-
-/* ---------- GÖNDERİCİ ---------- */
-let srcImg = null, q = null, W = 0, H = 0;
-$('T').oninput = () => { $('Tv').textContent = $('T').value; updateInfo(); };
-$('w').oninput = prepare;
-$('dither').onchange = prepare;
+/* ---------- Gönderici ---------- */
+let srcImg = null, plan = null, prepTimer = null, running = false, wake = null;
+const labels = () => { $('kv').textContent = $('k').value; $('tolv').textContent = $('tol').value; $('minbv').textContent = $('minb').value; $('Tv').textContent = $('T').value; };
+['k', 'tol', 'minb'].forEach(id => $(id).oninput = () => { labels(); clearTimeout(prepTimer); prepTimer = setTimeout(prepare, 250); });
+$('w').onchange = prepare;
+$('T').oninput = () => { labels(); updateInfo(); };
+$('loops').onchange = updateInfo;
 $('file').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
-  const img = new Image();
-  img.onload = () => { srcImg = img; prepare(); };
-  img.src = URL.createObjectURL(f);
+  const im = new Image();
+  im.onload = () => { srcImg = im; prepare(); };
+  im.src = URL.createObjectURL(f);
 };
 
-function prepare() {
+async function prepare() {
   if (!srcImg) return;
-  W = Math.max(2, Math.min(200, +$('w').value || 32));
-  H = Math.max(1, Math.round(W * srcImg.naturalHeight / srcImg.naturalWidth));
+  $('info').textContent = 'Hesaplanıyor…'; $('go').disabled = true;
+  await new Promise(r => setTimeout(r, 30));
+  const W = Math.min(+$('w').value, srcImg.naturalWidth);
+  const H = Math.max(1, Math.round(W * srcImg.naturalHeight / srcImg.naturalWidth));
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const x = c.getContext('2d', { willReadFrequently: true });
-  x.imageSmoothingQuality = 'high';
-  x.drawImage(srcImg, 0, 0, W, H);
-  const d = x.getImageData(0, 0, W, H).data;
-  const f = new Float32Array(W * H * 3);
-  for (let i = 0; i < W * H; i++) for (let k = 0; k < 3; k++) f[i * 3 + k] = d[i * 4 + k];
-  q = new Uint8Array(W * H * 3);
-  const dither = $('dither').checked;
-  const add = (xx, yy, k, e) => { if (xx >= 0 && xx < W && yy < H) f[(yy * W + xx) * 3 + k] += e; };
-  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) for (let k = 0; k < 3; k++) {
-    const idx = (y * W + xx) * 3 + k, old = f[idx];
-    const lv = Math.max(0, Math.min(7, Math.round(old / 255 * 7)));
-    q[idx] = lv;
-    if (dither) {
-      const err = old - lv * 255 / 7;
-      add(xx + 1, y, k, err * 7 / 16);
-      add(xx - 1, y + 1, k, err * 3 / 16);
-      add(xx, y + 1, k, err * 5 / 16);
-      add(xx + 1, y + 1, k, err * 1 / 16);
-    }
-  }
+  x.imageSmoothingQuality = 'high'; x.drawImage(srcImg, 0, 0, W, H);
+  const data = x.getImageData(0, 0, W, H).data, N = W * H, K = +$('k').value;
+  const pal = buildPalette(data, N, K);
+  const lab = labelImage(data, N, pal);
+  const { tokens, leaves } = quadEncode(lab, W, H, K, +$('tol').value / 100, +$('minb').value);
+  const lg = buildLogical(W, H, pal, tokens);
+  const frames = buildFrames(lg.digits, lg.total);
+  plan = { W, H, pal, tokens, leaves, frames, total: lg.total };
   const p = $('prev'); p.width = W; p.height = H;
-  const px = p.getContext('2d'), im = px.createImageData(W, H);
-  for (let i = 0; i < W * H; i++) {
-    for (let k = 0; k < 3; k++) im.data[i * 4 + k] = Math.round(q[i * 3 + k] * 255 / 7);
-    im.data[i * 4 + 3] = 255;
-  }
-  px.putImageData(im, 0, 0);
+  const px = p.getContext('2d');
+  for (const [lx, ly, lw, lh, ci] of leaves) { px.fillStyle = `rgb(${pal[ci]})`; px.fillRect(lx, ly, lw, lh); }
+  $('palview').innerHTML = pal.map((c, i) => `<i style="background:rgb(${c})"><b>${i}</b></i>`).join('');
   $('go').disabled = false;
   updateInfo();
 }
 
+function fmt(sec) { const m = Math.floor(sec / 60), s = Math.round(sec % 60); return `${m} dk ${s} sn`; }
 function updateInfo() {
-  if (!q) return;
-  const slots = 4 + 21 + 6 + 4 * W * H;
-  const sec = slots * (+$('T').value) / 1000;
-  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
-  $('info').textContent = `${W}×${H} = ${W * H} piksel · ${slots} kare · tahmini süre: ${m} dk ${s} sn`;
+  if (!plan) return;
+  const T = +$('T').value, one = plan.frames.length * T / 1000, loops = +$('loops').value;
+  $('info').textContent = `${plan.W}×${plan.H} · ${plan.pal.length} renk · ${plan.tokens.length} blok · ${plan.total} paket · tek tur ≈ ${fmt(one)}` + (loops ? ` · toplam ≈ ${fmt(one * loops)}` : '');
 }
 
-function buildFrames() {
-  const fr = [0, 0, 0, 0];
-  for (let c = 1; c < 8; c++) for (let j = 0; j < 3; j++) fr.push(c);
-  let prev = 7;
-  const push = d => { prev = (prev + 1 + d) % 8; fr.push(prev); };
-  const num = (n, len) => { for (let i = len - 1; i >= 0; i--) push(Math.floor(n / Math.pow(7, i)) % 7); };
-  num(W, 3); num(H, 3);
-  for (let p = 0; p < W * H; p++) num(q[p * 3] * 64 + q[p * 3 + 1] * 8 + q[p * 3 + 2], 4);
-  return fr;
-}
-
-let running = false, wake = null;
 const ov = $('overlay');
 async function startSend() {
-  const frames = buildFrames();
-  const T = +$('T').value, delay = +$('delay').value;
-  ov.style.display = 'block'; ov.style.background = '#000';
+  const frames = plan.frames, T = +$('T').value, delay = +$('delay').value, loops = +$('loops').value;
+  ov.style.display = 'block'; ov.style.background = `rgb(${GRAY})`;
   try { await ov.requestFullscreen?.(); } catch (e) {}
   try { wake = await navigator.wakeLock?.request('screen'); } catch (e) {}
   running = true;
-  let i = -1, next = performance.now() + delay * 1000;
+  let i = -1, done = 0, next = performance.now() + delay * 1000;
   const tick = now => {
     if (!running) return;
     if (now >= next) {
       i++;
-      if (i >= frames.length) { stopSend(); return; }
-      ov.style.background = `rgb(${PAL(frames[i])})`;
-      next = (now - next > T ? now : next) + T;   // kare atlamaz, sırayla ilerler
+      if (i >= frames.length) { done++; if (loops && done >= loops) { stopSend(); return; } i = 0; }
+      ov.style.background = `rgb(${symRGB(frames[i])})`;
+      next = (now - next > T ? now : next) + T;
     }
     requestAnimationFrame(tick);
   };
@@ -202,19 +431,40 @@ function stopSend() {
 ov.onclick = stopSend;
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && running) stopSend(); });
 $('go').onclick = startSend;
+labels();
 
-/* ---------- ALICI ---------- */
-const video = $('video');
+/* ---------- Alıcı ---------- */
+const video = $('video'), out = $('out'), octx = out.getContext('2d');
 const sc = document.createElement('canvas'); sc.width = sc.height = 32;
 const sx = sc.getContext('2d', { willReadFrequently: true });
-let stream = null, listening = false, st = null, outW = 0, outH = 0;
-
-const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+let stream = null, listening = false, rx = null, rxWake = null, locked = false;
 const setStatus = t => $('status').textContent = t;
 
-function reset() {
-  st = { cur: null, runs: [], mode: 'wait', refs: null, prev: 7, digits: [], total: null, wRun: null };
-  $('prog').value = 0; $('dl').disabled = true;
+function updateStats() {
+  if (!rx) return;
+  $('prog').max = rx.total || 1; $('prog').value = rx.ok;
+  $('stats').textContent = `Paket: ${rx.ok}/${rx.total || '?'} · hatalı: ${rx.bad} · tekrar gelen: ${rx.dup} · kalibrasyon: ${rx.cal}`;
+}
+
+function newRx() {
+  rx = new Rx({
+    onCal: n => { setStatus(n === 1 ? 'Kalibrasyon alındı, veri okunuyor…' : 'Kalibrasyon yenilendi.'); if (n === 1) lockCamera(); updateStats(); },
+    onInit: (W, H) => { out.width = W; out.height = H; octx.fillStyle = '#222'; octx.fillRect(0, 0, W, H); setStatus(`Görsel ${W}×${H}, çiziliyor…`); },
+    onPaint: (x, y, w, h, c) => { octx.fillStyle = `rgb(${c})`; octx.fillRect(x, y, w, h); },
+    onPacket: updateStats,
+    onDone: () => { setStatus('Tamamlandı ✔'); $('dl').disabled = false; updateStats(); }
+  }, +$('conf').value);
+  $('dl').disabled = true; updateStats();
+}
+
+async function lockCamera() {      // varsa pozlama/beyaz dengesini sabitle (her tarayıcı desteklemez)
+  try {
+    const tr = stream && stream.getVideoTracks()[0]; if (!tr || locked) return;
+    const caps = tr.getCapabilities ? tr.getCapabilities() : {}, s = tr.getSettings ? tr.getSettings() : {}, adv = {};
+    if (caps.exposureMode && caps.exposureMode.includes('manual')) { adv.exposureMode = 'manual'; if (s.exposureTime) adv.exposureTime = s.exposureTime; }
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('manual')) { adv.whiteBalanceMode = 'manual'; if (s.colorTemperature) adv.colorTemperature = s.colorTemperature; }
+    if (Object.keys(adv).length) { await tr.applyConstraints({ advanced: [adv] }); locked = true; }
+  } catch (e) {}
 }
 
 function sample() {
@@ -225,126 +475,43 @@ function sample() {
   return [r / n, g / n, b / n];
 }
 
-function onSample(s) {
-  const C = +$('conf').value, TH = 70;
-  let cur = st.cur;
-  if (cur && dist(s, cur.mean) < TH) {
-    cur.n++; for (let k = 0; k < 3; k++) cur.sum[k] += s[k];
-    cur.mean = cur.sum.map(v => v / cur.n);
-  } else {
-    cur = st.cur = { sum: [...s], n: 1, mean: [...s], ok: false };
-  }
-  $('swatch').style.background = `rgb(${s.map(Math.round)})`;
-  if (!cur.ok && cur.n >= C) { cur.ok = true; onRun(cur); }
-}
-
-function matches(runs) {
-  const lo = runs[0].mean, hi = runs[7].mean;
-  const thr = [];
-  for (let k = 0; k < 3; k++) { if (hi[k] - lo[k] < 60) return false; thr[k] = (lo[k] + hi[k]) / 2; }
-  for (let j = 1; j < 7; j++) for (let k = 0; k < 3; k++) {
-    if ((runs[j].mean[k] > thr[k] ? 1 : 0) !== ((j >> k) & 1)) return false;
-  }
-  return true;
-}
-
-function classify(m) {
-  let best = 0, bd = 1e9;
-  st.refs.forEach((r, i) => { const d = dist(m, r); if (d < bd) { bd = d; best = i; } });
-  return best;
-}
-
-const num = (arr, s, len) => { let n = 0; for (let i = 0; i < len; i++) n = n * 7 + arr[s + i]; return n; };
-
-function onRun(run) {
-  if (st.mode === 'wait') {
-    st.runs.push(run); if (st.runs.length > 8) st.runs.shift();
-    if (st.runs.length === 8 && matches(st.runs)) {
-      st.refs = st.runs.map(r => r.mean.slice());
-      st.wRun = st.runs[7];
-      st.mode = 'data'; st.prev = 7; st.digits = [];
-      setStatus('Kalibrasyon tamam, veri alınıyor…');
-    }
-    return;
-  }
-  if (st.mode !== 'data') return;
-  if (st.wRun) { st.refs[7] = st.wRun.mean.slice(); st.wRun = null; }
-  const cls = classify(run.mean);
-  if (cls === st.prev) return;                       // aynı renk, gürültü
-  st.refs[cls] = st.refs[cls].map((x, i) => x * 0.8 + run.mean[i] * 0.2);
-  st.digits.push((cls - st.prev - 1 + 8) % 8);
-  st.prev = cls;
-  const D = st.digits;
-
-  if (D.length === 6) {
-    const w = num(D, 0, 3), h = num(D, 3, 3);
-    if (w < 2 || h < 1 || w > 343 || h > 343) {
-      setStatus('Başlık hatalı, tekrar bekleniyor…'); st.mode = 'wait'; st.runs = []; return;
-    }
-    outW = w; outH = h; st.total = 6 + 4 * w * h;
-    const o = $('out'); o.width = w; o.height = h;
-    o.getContext('2d').fillStyle = '#000'; o.getContext('2d').fillRect(0, 0, w, h);
-    $('prog').max = st.total;
-  }
-  if (st.total) {
-    $('prog').value = D.length;
-    if (D.length > 6 && (D.length - 6) % 4 === 0) {
-      const p = (D.length - 6) / 4 - 1;
-      drawPixel(p, num(D, 6 + p * 4, 4));
-    }
-    setStatus(`Alınıyor: ${Math.floor((D.length - 6) / 4)} / ${outW * outH} piksel`);
-    if (D.length >= st.total) finish();
-  }
-}
-
-function drawPixel(p, v) {
-  v = Math.min(511, v);
-  const r = (v >> 6) & 7, g = (v >> 3) & 7, b = v & 7;
-  const x = p % outW, y = Math.floor(p / outW);
-  const c = $('out').getContext('2d');
-  c.fillStyle = `rgb(${Math.round(r * 255 / 7)},${Math.round(g * 255 / 7)},${Math.round(b * 255 / 7)})`;
-  c.fillRect(x, y, 1, 1);
-}
-
-function finish() {
-  st.mode = 'done';
-  setStatus('Tamamlandı ✔');
-  $('dl').disabled = false;
-}
-
-$('dl').onclick = () => {
-  const scale = Math.max(1, Math.round(720 / Math.max(outW, outH)));
-  const c = document.createElement('canvas'); c.width = outW * scale; c.height = outH * scale;
-  const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
-  x.drawImage($('out'), 0, 0, c.width, c.height);
-  c.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'alinan.png'; a.click(); });
-};
-
 function loop() {
   if (!listening) return;
-  try { onSample(sample()); } catch (e) {}
-  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(loop);
-  else setTimeout(loop, 33);
+  try {
+    const s = sample();
+    rx.conf = +$('conf').value;
+    rx.feed(s);
+    $('swatch').style.background = `rgb(${s.map(Math.round)})`;
+    const l = rx.live;
+    $('sym').textContent = !l ? '–' : l.neutral ? 'gri' : (l.sym === null ? Math.round(l.hue) + '°' : (l.sym === 10 ? 'R' : l.sym === 11 ? 'S' : l.sym));
+  } catch (e) {}
+  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(loop); else setTimeout(loop, 33);
 }
 
 $('listen').onclick = async () => {
-  stopListen();
+  stopListen(); locked = false;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: $('cam').value }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } },
       audio: false
     });
-  } catch (e) { setStatus('Kamera açılamadı: ' + e.message); return; }
+  } catch (e) { setStatus('Kamera açılamadı: ' + e.message + ' (sayfa https ile açılmalı ve kamera izni verilmeli)'); return; }
   video.srcObject = stream; await video.play();
-  reset(); listening = true;
-  setStatus('Dinleniyor… Gönderen telefonu kameraya yerleştirip başlatın.');
+  try { rxWake = await navigator.wakeLock?.request('screen'); } catch (e) {}
+  newRx(); listening = true;
+  setStatus('Dinleniyor… Gönderen telefonu başlatıp ekranını kameraya yapıştırın.');
   loop();
 };
 function stopListen() {
   listening = false;
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if (rxWake) { rxWake.release().catch(() => {}); rxWake = null; }
 }
 $('stopR').onclick = () => { stopListen(); setStatus('Durduruldu.'); };
+
+$('dl').onclick = () => {
+  out.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'alinan.png'; a.click(); });
+};
 </script>
 </body>
 </html>
