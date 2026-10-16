@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Renkle Görsel Aktarımı</title>
+<style>
+  :root{--bg:#111;--card:#1c1c1e;--fg:#f2f2f2;--mut:#9a9a9f;--acc:#4f8cff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg);padding:16px;max-width:560px;margin:auto}
+  h1{font-size:20px;margin:4px 0 12px}
+  .tabs{display:flex;gap:8px;margin-bottom:12px}
+  .tabs button{flex:1}
+  button,select,input{font:inherit}
+  button{background:var(--card);color:var(--fg);border:1px solid #333;border-radius:10px;padding:12px;cursor:pointer}
+  button.on,button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+  button:disabled{opacity:.4}
+  .card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px}
+  label{display:block;margin:10px 0 4px;color:var(--mut);font-size:13px}
+  input[type=number],select{width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#111;color:var(--fg)}
+  input[type=range]{width:100%}
+  canvas.px{width:100%;image-rendering:pixelated;background:#000;border-radius:8px;display:block}
+  video{width:100%;max-height:160px;background:#000;border-radius:8px;object-fit:cover}
+  .row{display:flex;gap:8px;align-items:center}
+  .row>*{flex:1}
+  .small{font-size:13px;color:var(--mut);line-height:1.45}
+  #swatch{width:44px;height:44px;flex:none;border-radius:8px;border:1px solid #444}
+  progress{width:100%}
+  #overlay{position:fixed;inset:0;background:#000;display:none;z-index:99}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<h1>Renkle Görsel Aktarımı</h1>
+<div class="tabs">
+  <button id="tabS" class="on">Gönder</button>
+  <button id="tabR">Al</button>
+</div>
+
+<!-- GÖNDER -->
+<section id="send">
+  <div class="card">
+    <input type="file" id="file" accept="image/*">
+    <label>Genişlik (piksel)</label>
+    <input type="number" id="w" value="32" min="2" max="200">
+    <label>Sembol süresi: <b id="Tv">150</b> ms (düşük = hızlı ama hatalı)</label>
+    <input type="range" id="T" min="80" max="400" step="10" value="150">
+    <label>Başlamadan önce bekleme</label>
+    <select id="delay"><option value="3">3 sn</option><option value="5" selected>5 sn</option><option value="10">10 sn</option></select>
+    <label><input type="checkbox" id="dither" checked> Dithering (daha iyi görüntü kalitesi)</label>
+  </div>
+  <div class="card">
+    <canvas id="prev" class="px" width="1" height="1"></canvas>
+    <p class="small" id="info">Bir görsel seç.</p>
+    <button class="primary" id="go" disabled style="width:100%">Göndermeyi başlat</button>
+    <p class="small">İpucu: Parlaklığı en üste al, otomatik parlaklık / True Tone / gece modu / karanlık mod filtrelerini kapat. Başlat'a bastıktan sonra telefonu alıcının kamerasına yapıştır. Durdurmak için ekrana dokun.</p>
+  </div>
+</section>
+
+<!-- AL -->
+<section id="recv" class="hidden">
+  <div class="card">
+    <div class="row">
+      <div><label>Kamera</label><select id="cam"><option value="environment">Arka</option><option value="user">Ön</option></select></div>
+      <div><label>Doğrulama (kare)</label><select id="conf"><option>2</option><option>3</option></select></div>
+    </div>
+    <p></p>
+    <video id="video" playsinline muted autoplay></video>
+    <p></p>
+    <div class="row">
+      <button class="primary" id="listen">Dinlemeyi başlat</button>
+      <button id="stopR">Durdur</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row"><div id="swatch"></div><div class="small" id="status">Hazır.</div></div>
+    <p></p>
+    <progress id="prog" value="0" max="1"></progress>
+    <p></p>
+    <canvas id="out" class="px" width="1" height="1"></canvas>
+    <p></p>
+    <button id="dl" disabled style="width:100%">PNG olarak indir</button>
+  </div>
+</section>
+
+<div id="overlay"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const PAL = i => [(i & 1) * 255, ((i >> 1) & 1) * 255, ((i >> 2) & 1) * 255];
+
+/* ---------- Sekmeler ---------- */
+$('tabS').onclick = () => { $('send').classList.remove('hidden'); $('recv').classList.add('hidden'); $('tabS').classList.add('on'); $('tabR').classList.remove('on'); };
+$('tabR').onclick = () => { $('recv').classList.remove('hidden'); $('send').classList.add('hidden'); $('tabR').classList.add('on'); $('tabS').classList.remove('on'); };
+
+/* =====================================================
+   PROTOKOL
+   - 8 renk (RGB köşeleri). Siyah=0 ... Beyaz=7
+   - Kalibrasyon: siyah, kırmızı, yeşil, sarı, mavi, mor, camgöbeği, beyaz
+   - Veri: her kare bir öncekinden FARKLI renk (diferansiyel kodlama),
+     7'li tabanda rakam: renk = (önceki + 1 + rakam) % 8
+     => ortak saat gerekmez, ardışık aynı renk sorunu olmaz
+   - Başlık: genişlik (3 rakam), yükseklik (3 rakam)
+   - Piksel: 3 bit/kanal = 9 bit (0..511) -> 4 rakam (7^4=2401)
+   ===================================================== */
+
+/* ---------- GÖNDERİCİ ---------- */
+let srcImg = null, q = null, W = 0, H = 0;
+$('T').oninput = () => { $('Tv').textContent = $('T').value; updateInfo(); };
+$('w').oninput = prepare;
+$('dither').onchange = prepare;
+$('file').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => { srcImg = img; prepare(); };
+  img.src = URL.createObjectURL(f);
+};
+
+function prepare() {
+  if (!srcImg) return;
+  W = Math.max(2, Math.min(200, +$('w').value || 32));
+  H = Math.max(1, Math.round(W * srcImg.naturalHeight / srcImg.naturalWidth));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(srcImg, 0, 0, W, H);
+  const d = x.getImageData(0, 0, W, H).data;
+  const f = new Float32Array(W * H * 3);
+  for (let i = 0; i < W * H; i++) for (let k = 0; k < 3; k++) f[i * 3 + k] = d[i * 4 + k];
+  q = new Uint8Array(W * H * 3);
+  const dither = $('dither').checked;
+  const add = (xx, yy, k, e) => { if (xx >= 0 && xx < W && yy < H) f[(yy * W + xx) * 3 + k] += e; };
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) for (let k = 0; k < 3; k++) {
+    const idx = (y * W + xx) * 3 + k, old = f[idx];
+    const lv = Math.max(0, Math.min(7, Math.round(old / 255 * 7)));
+    q[idx] = lv;
+    if (dither) {
+      const err = old - lv * 255 / 7;
+      add(xx + 1, y, k, err * 7 / 16);
+      add(xx - 1, y + 1, k, err * 3 / 16);
+      add(xx, y + 1, k, err * 5 / 16);
+      add(xx + 1, y + 1, k, err * 1 / 16);
+    }
+  }
+  const p = $('prev'); p.width = W; p.height = H;
+  const px = p.getContext('2d'), im = px.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    for (let k = 0; k < 3; k++) im.data[i * 4 + k] = Math.round(q[i * 3 + k] * 255 / 7);
+    im.data[i * 4 + 3] = 255;
+  }
+  px.putImageData(im, 0, 0);
+  $('go').disabled = false;
+  updateInfo();
+}
+
+function updateInfo() {
+  if (!q) return;
+  const slots = 4 + 21 + 6 + 4 * W * H;
+  const sec = slots * (+$('T').value) / 1000;
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  $('info').textContent = `${W}×${H} = ${W * H} piksel · ${slots} kare · tahmini süre: ${m} dk ${s} sn`;
+}
+
+function buildFrames() {
+  const fr = [0, 0, 0, 0];
+  for (let c = 1; c < 8; c++) for (let j = 0; j < 3; j++) fr.push(c);
+  let prev = 7;
+  const push = d => { prev = (prev + 1 + d) % 8; fr.push(prev); };
+  const num = (n, len) => { for (let i = len - 1; i >= 0; i--) push(Math.floor(n / Math.pow(7, i)) % 7); };
+  num(W, 3); num(H, 3);
+  for (let p = 0; p < W * H; p++) num(q[p * 3] * 64 + q[p * 3 + 1] * 8 + q[p * 3 + 2], 4);
+  return fr;
+}
+
+let running = false, wake = null;
+const ov = $('overlay');
+async function startSend() {
+  const frames = buildFrames();
+  const T = +$('T').value, delay = +$('delay').value;
+  ov.style.display = 'block'; ov.style.background = '#000';
+  try { await ov.requestFullscreen?.(); } catch (e) {}
+  try { wake = await navigator.wakeLock?.request('screen'); } catch (e) {}
+  running = true;
+  let i = -1, next = performance.now() + delay * 1000;
+  const tick = now => {
+    if (!running) return;
+    if (now >= next) {
+      i++;
+      if (i >= frames.length) { stopSend(); return; }
+      ov.style.background = `rgb(${PAL(frames[i])})`;
+      next = (now - next > T ? now : next) + T;   // kare atlamaz, sırayla ilerler
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+function stopSend() {
+  running = false; ov.style.display = 'none';
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (wake) { wake.release().catch(() => {}); wake = null; }
+}
+ov.onclick = stopSend;
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && running) stopSend(); });
+$('go').onclick = startSend;
+
+/* ---------- ALICI ---------- */
+const video = $('video');
+const sc = document.createElement('canvas'); sc.width = sc.height = 32;
+const sx = sc.getContext('2d', { willReadFrequently: true });
+let stream = null, listening = false, st = null, outW = 0, outH = 0;
+
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const setStatus = t => $('status').textContent = t;
+
+function reset() {
+  st = { cur: null, runs: [], mode: 'wait', refs: null, prev: 7, digits: [], total: null, wRun: null };
+  $('prog').value = 0; $('dl').disabled = true;
+}
+
+function sample() {
+  sx.drawImage(video, 0, 0, 32, 32);
+  const d = sx.getImageData(8, 8, 16, 16).data;
+  let r = 0, g = 0, b = 0; const n = d.length / 4;
+  for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+  return [r / n, g / n, b / n];
+}
+
+function onSample(s) {
+  const C = +$('conf').value, TH = 70;
+  let cur = st.cur;
+  if (cur && dist(s, cur.mean) < TH) {
+    cur.n++; for (let k = 0; k < 3; k++) cur.sum[k] += s[k];
+    cur.mean = cur.sum.map(v => v / cur.n);
+  } else {
+    cur = st.cur = { sum: [...s], n: 1, mean: [...s], ok: false };
+  }
+  $('swatch').style.background = `rgb(${s.map(Math.round)})`;
+  if (!cur.ok && cur.n >= C) { cur.ok = true; onRun(cur); }
+}
+
+function matches(runs) {
+  const lo = runs[0].mean, hi = runs[7].mean;
+  const thr = [];
+  for (let k = 0; k < 3; k++) { if (hi[k] - lo[k] < 60) return false; thr[k] = (lo[k] + hi[k]) / 2; }
+  for (let j = 1; j < 7; j++) for (let k = 0; k < 3; k++) {
+    if ((runs[j].mean[k] > thr[k] ? 1 : 0) !== ((j >> k) & 1)) return false;
+  }
+  return true;
+}
+
+function classify(m) {
+  let best = 0, bd = 1e9;
+  st.refs.forEach((r, i) => { const d = dist(m, r); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+
+const num = (arr, s, len) => { let n = 0; for (let i = 0; i < len; i++) n = n * 7 + arr[s + i]; return n; };
+
+function onRun(run) {
+  if (st.mode === 'wait') {
+    st.runs.push(run); if (st.runs.length > 8) st.runs.shift();
+    if (st.runs.length === 8 && matches(st.runs)) {
+      st.refs = st.runs.map(r => r.mean.slice());
+      st.wRun = st.runs[7];
+      st.mode = 'data'; st.prev = 7; st.digits = [];
+      setStatus('Kalibrasyon tamam, veri alınıyor…');
+    }
+    return;
+  }
+  if (st.mode !== 'data') return;
+  if (st.wRun) { st.refs[7] = st.wRun.mean.slice(); st.wRun = null; }
+  const cls = classify(run.mean);
+  if (cls === st.prev) return;                       // aynı renk, gürültü
+  st.refs[cls] = st.refs[cls].map((x, i) => x * 0.8 + run.mean[i] * 0.2);
+  st.digits.push((cls - st.prev - 1 + 8) % 8);
+  st.prev = cls;
+  const D = st.digits;
+
+  if (D.length === 6) {
+    const w = num(D, 0, 3), h = num(D, 3, 3);
+    if (w < 2 || h < 1 || w > 343 || h > 343) {
+      setStatus('Başlık hatalı, tekrar bekleniyor…'); st.mode = 'wait'; st.runs = []; return;
+    }
+    outW = w; outH = h; st.total = 6 + 4 * w * h;
+    const o = $('out'); o.width = w; o.height = h;
+    o.getContext('2d').fillStyle = '#000'; o.getContext('2d').fillRect(0, 0, w, h);
+    $('prog').max = st.total;
+  }
+  if (st.total) {
+    $('prog').value = D.length;
+    if (D.length > 6 && (D.length - 6) % 4 === 0) {
+      const p = (D.length - 6) / 4 - 1;
+      drawPixel(p, num(D, 6 + p * 4, 4));
+    }
+    setStatus(`Alınıyor: ${Math.floor((D.length - 6) / 4)} / ${outW * outH} piksel`);
+    if (D.length >= st.total) finish();
+  }
+}
+
+function drawPixel(p, v) {
+  v = Math.min(511, v);
+  const r = (v >> 6) & 7, g = (v >> 3) & 7, b = v & 7;
+  const x = p % outW, y = Math.floor(p / outW);
+  const c = $('out').getContext('2d');
+  c.fillStyle = `rgb(${Math.round(r * 255 / 7)},${Math.round(g * 255 / 7)},${Math.round(b * 255 / 7)})`;
+  c.fillRect(x, y, 1, 1);
+}
+
+function finish() {
+  st.mode = 'done';
+  setStatus('Tamamlandı ✔');
+  $('dl').disabled = false;
+}
+
+$('dl').onclick = () => {
+  const scale = Math.max(1, Math.round(720 / Math.max(outW, outH)));
+  const c = document.createElement('canvas'); c.width = outW * scale; c.height = outH * scale;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.drawImage($('out'), 0, 0, c.width, c.height);
+  c.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'alinan.png'; a.click(); });
+};
+
+function loop() {
+  if (!listening) return;
+  try { onSample(sample()); } catch (e) {}
+  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(loop);
+  else setTimeout(loop, 33);
+}
+
+$('listen').onclick = async () => {
+  stopListen();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: $('cam').value }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } },
+      audio: false
+    });
+  } catch (e) { setStatus('Kamera açılamadı: ' + e.message); return; }
+  video.srcObject = stream; await video.play();
+  reset(); listening = true;
+  setStatus('Dinleniyor… Gönderen telefonu kameraya yerleştirip başlatın.');
+  loop();
+};
+function stopListen() {
+  listening = false;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+}
+$('stopR').onclick = () => { stopListen(); setStatus('Durduruldu.'); };
+</script>
+</body>
+</html>
